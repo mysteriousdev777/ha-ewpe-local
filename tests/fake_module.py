@@ -3,6 +3,9 @@
 Behaves like the tested one: answers scan with the generic ECB key, binds with one
 cipher only (silent to the other), answers status with the keys it knows, echoes
 commands, ignores fan changes in Dry and switches the fan to High when Dry starts.
+
+It encrypts with greeclimate's ciphers: the integration's own packets are read and
+answered by an independent implementation of the protocol.
 """
 
 from __future__ import annotations

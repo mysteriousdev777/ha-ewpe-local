@@ -7,7 +7,6 @@ from ipaddress import IPv4Address
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
-from greeclimate.deviceinfo import DeviceInfo
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -18,6 +17,7 @@ from custom_components.ewpe_local.const import (
     CONF_VENDER,
     DOMAIN,
 )
+from custom_components.ewpe_local.packets import DeviceInfo
 from homeassistant.config_entries import SOURCE_USER
 from homeassistant.const import CONF_HOST, CONF_MAC
 from homeassistant.core import HomeAssistant
@@ -43,7 +43,7 @@ def no_setup() -> Generator[AsyncMock]:
 
 
 def device(mid: str | None = "13805", host: str = HOST, mac: str = MAC) -> DeviceInfo:
-    return DeviceInfo(host, 7000, mac, mac, "gree", None, "V3.4.M", mid)
+    return DeviceInfo(host, 7000, mac, mid)
 
 
 @pytest.fixture

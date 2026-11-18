@@ -27,8 +27,8 @@ jobs:
 
   # The minimum Home Assistant of hacs.json: change both together. The test harness of
   # that release, its packages as of the release date and Core's own constraints, as
-  # Home Assistant installs them; newer only what Home Assistant installs for the
-  # integration when it is added (greeclimate as in manifest.json, pycryptodome).
+  # Home Assistant installs them (the integration uses its cryptography); newer only
+  # what only the tests need (greeclimate, the reference, with pycryptodome).
   tests-min:
     name: Tests (Home Assistant 2025.3.0, Python 3.13)
     runs-on: ubuntu-24.04

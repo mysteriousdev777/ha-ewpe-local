@@ -6,7 +6,6 @@ import asyncio
 from collections.abc import AsyncGenerator
 from ipaddress import IPv4Address
 
-from greeclimate.deviceinfo import DeviceInfo
 import pytest
 
 from custom_components.ewpe_local import client
@@ -17,13 +16,14 @@ from custom_components.ewpe_local.client import (
     handshake,
     scan,
 )
+from custom_components.ewpe_local.packets import DeviceInfo
 
 from .fake_module import MAC, FakeModule, start_module
 
 
 @pytest.fixture
 async def ewpe(module: FakeModule) -> AsyncGenerator[EwpeClient]:
-    device = EwpeClient("127.0.0.1", MAC, module.mid, module.cipher)
+    device = EwpeClient("127.0.0.1", MAC, module.cipher)
     yield device
     device.close()
 
@@ -34,7 +34,7 @@ async def test_status_has_the_known_keys(ewpe: EwpeClient, module: FakeModule) -
 
 
 async def test_one_bind_for_many_requests(ewpe: EwpeClient, module: FakeModule) -> None:
-    """One bind, and no status request of greeclimate's own after it."""
+    """One bind, and no other request than those asked for."""
     for _ in range(3):
         await ewpe.status(["Pow"])
     await asyncio.sleep(0.05)  # room for a request the library would send by itself
@@ -86,13 +86,25 @@ async def test_late_reply_after_a_timeout(ewpe: EwpeClient, module: FakeModule) 
 
 @pytest.mark.parametrize("module_kwargs", [{"cipher": 1}])
 async def test_wrong_cipher_gets_no_bind(module: FakeModule) -> None:
-    device = EwpeClient("127.0.0.1", MAC, "13805", 2)
+    device = EwpeClient("127.0.0.1", MAC, 2)
     try:
         with pytest.raises(EwpeError):
             await device.status(["Pow"])
     finally:
         device.close()
     assert "bind" not in module.requests
+
+
+@pytest.mark.parametrize("module_kwargs", [{"mac": "aabbccdd0001"}])
+async def test_another_device_at_the_address(module: FakeModule) -> None:
+    """A device with another MAC answers the bind: its reply is not taken."""
+    device = EwpeClient("127.0.0.1", MAC, module.cipher)
+    try:
+        with pytest.raises(EwpeError):
+            await device.status(["Pow"])
+    finally:
+        device.close()
+    assert module.requests == ["bind"]
 
 
 async def test_close_fails_a_waiting_request(
@@ -119,7 +131,7 @@ async def test_requests_are_one_at_a_time(ewpe: EwpeClient, module: FakeModule) 
 
 @pytest.mark.parametrize("module_kwargs", [{"cipher": 1}, {"cipher": 2}])
 async def test_handshake_finds_the_cipher(module: FakeModule) -> None:
-    info = DeviceInfo("127.0.0.1", module.port, MAC, None, mid="13805")
+    info = DeviceInfo("127.0.0.1", module.port, MAC, "13805")
     cipher, status = await handshake(info, ["Pow", "vender"])
     assert cipher == module.cipher
     assert status == {"Pow": 1}
@@ -127,7 +139,7 @@ async def test_handshake_finds_the_cipher(module: FakeModule) -> None:
 
 async def test_handshake_without_answer(module: FakeModule) -> None:
     module.silent = True
-    info = DeviceInfo("127.0.0.1", module.port, MAC, None, mid="13805")
+    info = DeviceInfo("127.0.0.1", module.port, MAC, "13805")
     with pytest.raises(EwpeError):
         await handshake(info, ["Pow"])
 
@@ -182,3 +194,14 @@ async def test_discover_without_answer(module_on_7000: FakeModule) -> None:
 
 async def test_discover_needs_addresses() -> None:
     assert await discover([]) == []
+
+
+async def test_no_socket_for_a_scan(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def no_socket(*args: object, **kwargs: object) -> None:
+        raise OSError("no network")
+
+    loop = asyncio.get_running_loop()
+    monkeypatch.setattr(loop, "create_datagram_endpoint", no_socket)
+    assert await discover(["192.0.2.255"]) == []
+    with pytest.raises(EwpeError, match="cannot scan"):
+        await scan("192.0.2.10")

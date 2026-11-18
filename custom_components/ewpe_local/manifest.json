@@ -1,6 +1,7 @@
 {
   "domain": "ewpe_local",
   "name": "EWPE Local",
+  "categories": ["climate.air_purifiers_humidifiers"],
   "codeowners": ["@mysteriousdev777"],
   "config_flow": true,
   "dependencies": ["network"],
@@ -8,7 +9,5 @@
   "integration_type": "device",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/mysteriousdev777/ha-ewpe-local/issues",
-  "loggers": ["greeclimate"],
-  "requirements": ["greeclimate==4.3.2"],
   "version": "0.1.0"
 }

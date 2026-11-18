@@ -9,7 +9,6 @@ from __future__ import annotations
 from ipaddress import IPv4Address
 from typing import Any
 
-from greeclimate.deviceinfo import DeviceInfo
 import voluptuous as vol
 
 from homeassistant.components import network
@@ -41,7 +40,8 @@ from .const import (
     MIN_SCAN_INTERVAL,
 )
 from .models import DEHUMIDIFIER_MIDS, VENDER_MIDS, find_model
-from .protocol import POWER, VENDER, normalize_mac, normalize_vender
+from .packets import DeviceInfo
+from .protocol import POWER, VENDER, normalize_vender
 
 USER_SCHEMA = vol.Schema({vol.Optional(CONF_HOST, default=""): str})  # empty: search
 HOST_SCHEMA = vol.Schema({vol.Required(CONF_HOST): str})
@@ -62,10 +62,6 @@ OPTIONS_SCHEMA = vol.Schema(
 
 class InvalidHost(ValueError):
     """Not an IPv4 address."""
-
-
-def _mid(info: DeviceInfo) -> str | None:
-    return info.mid if isinstance(info.mid, str) else None
 
 
 class EwpeLocalConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -158,9 +154,8 @@ class EwpeLocalConfigFlow(ConfigFlow, domain=DOMAIN):
         for info in sorted(
             await discover(addresses), key=lambda info: IPv4Address(info.ip)
         ):
-            mac = normalize_mac(info.mac)
-            if mac not in added and _mid(info) in DEHUMIDIFIER_MIDS:
-                found[mac] = info
+            if info.mac not in added and info.mid in DEHUMIDIFIER_MIDS:
+                found[info.mac] = info
         return found
 
     async def _async_probe(self, host: str) -> tuple[str, dict[str, Any]]:
@@ -180,14 +175,14 @@ class EwpeLocalConfigFlow(ConfigFlow, domain=DOMAIN):
         Raises EwpeError (no bind or status reply) or AbortFlow (another device, one
         already added, not a dehumidifier, a model not supported yet).
         """
-        mac = normalize_mac(info.mac)
+        mac = info.mac  # normalized by the scan
         await self.async_set_unique_id(mac)
         if self.source == SOURCE_RECONFIGURE:
             self._abort_if_unique_id_mismatch(reason="wrong_device")
         else:
             self._abort_if_unique_id_configured(updates={CONF_HOST: info.ip})
 
-        mid = _mid(info)
+        mid = info.mid
         if mid not in DEHUMIDIFIER_MIDS:
             raise AbortFlow("not_dehumidifier", {"mid": str(mid)})
         columns = [POWER, VENDER] if mid in VENDER_MIDS else [POWER]

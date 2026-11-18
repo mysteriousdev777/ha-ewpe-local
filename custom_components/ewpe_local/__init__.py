@@ -30,9 +30,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: EwpeConfigEntry) -> bool
             translation_key="unsupported_model",
             translation_placeholders={"mid": str(data[CONF_MID])},
         )
-    client = EwpeClient(
-        data[CONF_HOST], data[CONF_MAC], data[CONF_MID], data[CONF_CIPHER]
-    )
+    client = EwpeClient(data[CONF_HOST], data[CONF_MAC], data[CONF_CIPHER])
     coordinator = EwpeCoordinator(hass, entry, client, model)
     # Closes the client on unload, and also if the first refresh fails.
     await coordinator.async_config_entry_first_refresh()
