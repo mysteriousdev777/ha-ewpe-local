@@ -16,7 +16,7 @@ HUMIDITY: Final = "DwatSen"  # current humidity, %
 FAN: Final = "WdSpd"  # fan speed code, per model
 TANK_FULL: Final = "DwatFul"  # 1: the water tank is full or removed
 FILTER: Final = "Dfltr"  # 1: clean the filter (every 250 h); writing 0 resets it
-ERROR: Final = "AllErr"  # 0: no error; the tank full counts too
+ERROR: Final = "AllErr"  # 0: no error; a flag that the full tank sets too, see fault()
 TEMPERATURE: Final = "TemSen"  # air temperature + 40, in °C
 LIGHT: Final = "Lig"  # 0: display off; 1: display and air quality light on
 SWING: Final = "SwUpDn"  # 1: the louver swings, 0: stopped
@@ -60,6 +60,19 @@ def encode(table: Mapping[int, str], name: str) -> int | None:
         if known == name:
             return code
     return None
+
+
+def fault(error: Any, tank_full: Any) -> bool | None:
+    """A malfunction other than the full tank, which sets the error flag too.
+
+    None while either value is unknown. Which malfunction shows only on the device's
+    display: the flag carries no code.
+    """
+    flag = as_bool(error)
+    if not flag:
+        return flag
+    tank = as_bool(tank_full)
+    return None if tank is None else not tank
 
 
 def target_from_code(value: Any) -> int | None:

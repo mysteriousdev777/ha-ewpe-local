@@ -29,7 +29,15 @@ from .const import (
     MIN_SCAN_INTERVAL,
 )
 from .models import Model
-from .protocol import FIRMWARE, MODE, as_int, decode, firmware_version
+from .protocol import (
+    FIRMWARE,
+    MODE,
+    TANK_FULL,
+    as_bool,
+    as_int,
+    decode,
+    firmware_version,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -92,6 +100,14 @@ class EwpeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Whether the current mode keeps a key from changing."""
         return self.model.locked(column, self.mode)
 
+    def _lock(self, column: str) -> tuple[str, dict[str, str] | None] | None:
+        """Why the panel would not let a key change now: translation key, placeholders."""
+        if self.model.tank_locked(column, as_bool(self.data.get(TANK_FULL))):
+            return "tank_full", None
+        if self.locked(column):
+            return "locked", {"mode": str(self.mode)}
+        return None
+
     async def _async_update_data(self) -> dict[str, Any]:
         columns = self.model.columns
         if self.data is None:  # the first read also asks for the firmware
@@ -118,13 +134,18 @@ class EwpeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_set(self, column: str, value: int) -> None:
         """Write one status key, then read the device back."""
-        if self.locked(column):
+        if self._lock(column) is not None and as_int(self.data.get(column)) != value:
+            # The tank may have been emptied, or the mode changed on the panel, since
+            # the last poll: read the device once before refusing.
+            await self.async_refresh()
+        if (lock := self._lock(column)) is not None:
             if as_int(self.data.get(column)) == value:
-                return  # what the mode keeps anyway (Health on in Purify): no error
+                return  # what the device keeps anyway (Health on in Purify): no error
+            translation_key, placeholders = lock
             raise ServiceValidationError(
                 translation_domain=DOMAIN,
-                translation_key="locked",
-                translation_placeholders={"mode": str(self.mode)},
+                translation_key=translation_key,
+                translation_placeholders=placeholders,
             )
         try:
             echo = await self.client.command({column: value})

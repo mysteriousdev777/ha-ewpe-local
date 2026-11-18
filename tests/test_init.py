@@ -39,7 +39,7 @@ async def test_setup_and_unload(
     assert device.name == "Dehumidifier"
 
     entities = er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
-    assert len(entities) == 16  # 13805: no ambient light
+    assert len(entities) == 17  # 13805: no ambient light
 
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()

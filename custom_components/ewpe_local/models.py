@@ -55,10 +55,16 @@ class Model:
     # Status key → modes in which the panel does not let it change: the device then
     # ignores the value or sets its own (in Dry the fan is always High).
     locks: Mapping[str, frozenset[str]] = field(default_factory=dict)
+    # Status keys the panel does not let change while the water tank is full.
+    tank_locks: frozenset[str] = frozenset()
 
     def locked(self, column: str, mode: str | None) -> bool:
         """Whether a key cannot be changed in a mode."""
         return mode is not None and mode in self.locks.get(column, frozenset())
+
+    def tank_locked(self, column: str, tank_full: bool | None) -> bool:
+        """Whether a key cannot be changed because the water tank is full."""
+        return tank_full is True and column in self.tank_locks
 
 
 # Cooper&Hunter CH-D014WD6-30LD WF and its siblings: checked on the device.
@@ -91,6 +97,13 @@ _13805: Final = Model(
         FAN: frozenset({"dry"}),
         HEALTH: frozenset({"purify"}),
     },
+    # Everything but the power and the child lock (and the filter reset, not a panel
+    # button), as in the app's panel; also the ambient light of the 13806 variant.
+    # Not checked on the device. With the power off the panel locks most keys too, but
+    # the device keeps what it gets then and applies it when turned on: not locked here.
+    tank_locks=frozenset(
+        {MODE, TARGET, FAN, LIGHT, MUTE, SWING, HEALTH, AMBIENT_LIGHT}
+    ),
 )
 
 # 13806 with these `vender` values has the 13805 panel plus an ambient light.

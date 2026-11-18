@@ -11,17 +11,24 @@ from custom_components.ewpe_local.models import (
 )
 from custom_components.ewpe_local.protocol import (
     AMBIENT_LIGHT,
+    CHILD_LOCK,
     FAN,
+    FILTER,
     HEALTH,
+    LIGHT,
     MODE,
+    MUTE,
     ODOR_LEVELS,
     PM25_LEVELS,
+    POWER,
+    SWING,
     TARGET,
     as_bool,
     as_int,
     code_from_target,
     decode,
     encode,
+    fault,
     firmware_version,
     normalize_mac,
     normalize_vender,
@@ -44,6 +51,26 @@ def test_as_bool() -> None:
     assert as_bool(2) is True
     assert as_bool(0) is False
     assert as_bool(None) is None
+
+
+@pytest.mark.parametrize(
+    ("error", "tank_full", "expected"),
+    [
+        (0, 0, False),
+        (0, 1, False),
+        (0, None, False),  # no error flag: no fault, whatever the tank
+        (1, 0, True),
+        (2, 0, True),
+        (1, 1, False),  # the full tank sets the flag too
+        (1, None, None),  # cannot tell
+        (None, 0, None),
+        ("1", 0, None),
+    ],
+)
+def test_fault_leaves_out_the_full_tank(
+    error: object, tank_full: object, expected: bool | None
+) -> None:
+    assert fault(error, tank_full) is expected
 
 
 def test_target_codes_match_the_panel() -> None:
@@ -115,6 +142,17 @@ def test_13805_locks() -> None:
     assert not model.locked(TARGET, None)
 
 
+def test_13805_full_tank_locks_all_but_power_and_child_lock() -> None:
+    model = find_model("13805")
+    assert model is not None
+    for column in (MODE, TARGET, FAN, LIGHT, MUTE, SWING, HEALTH):
+        assert model.tank_locked(column, True), column
+        assert not model.tank_locked(column, False), column
+        assert not model.tank_locked(column, None), column
+    for column in (POWER, CHILD_LOCK, FILTER):
+        assert not model.tank_locked(column, True), column
+
+
 @pytest.mark.parametrize("vender", ["71000001", "7b000001", "7B000001"])
 def test_13806_ambient_light(vender: str) -> None:
     model = find_model("13806", vender)
@@ -123,6 +161,8 @@ def test_13806_ambient_light(vender: str) -> None:
     assert model.columns == (*base.columns, AMBIENT_LIGHT)
     assert model.modes == base.modes
     assert model.locks == base.locks
+    assert model.tank_locks == base.tank_locks
+    assert model.tank_locked(AMBIENT_LIGHT, True)
 
 
 @pytest.mark.parametrize(

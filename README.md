@@ -1,6 +1,7 @@
 # EWPE Local
 
 [![CI](https://github.com/mysteriousdev777/ha-ewpe-local/actions/workflows/ci.yml/badge.svg)](https://github.com/mysteriousdev777/ha-ewpe-local/actions/workflows/ci.yml)
+[![HACS](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
 
 Local control of **Gree-platform dehumidifiers** in Home Assistant, such as
 **Cooper&Hunter** ones: the dehumidifiers you set up with the **EWPE Smart** or **Gree+**
@@ -15,11 +16,12 @@ for this integration.
 - **A real dehumidifier in Home Assistant**: on and off, target humidity 30-80 %, modes
   Dehumidify, Purify and Dry, from dashboards, automations and voice assistants.
 - **Only what the device has**: entities follow the model's panel in the EWPE Smart app,
-  16 for the 13805, none left over from air conditioners.
-- **Follows the device's panel**: a setting the device would ignore in its current mode is
-  refused with a clear message, and the state is read back 2 seconds after every command.
+  17 for the 13805, none left over from air conditioners.
+- **Follows the device's panel**: a setting the panel does not allow in the current mode or
+  with a full tank is refused with a clear message, and the state is read back 2 seconds
+  after every command.
 - **Proper sensors**: humidity and temperature with units and long-term statistics, PM2.5
-  and odor levels, water tank and filter as problem sensors.
+  and odor levels, water tank, filter and a fault as problem sensors.
 - **Local and careful**: no cloud account, the device key is not stored, the address
   changes only when you change it, diagnostics leave out the address and MAC.
 - **Easy to add**: finds the dehumidifier on your network, or takes its IP address; the
@@ -66,21 +68,25 @@ variant.
 - Sensors: humidity, temperature, PM2.5 level (Excellent, Good, Bad), odor level (Normal,
   Slight, Serious), error code; Wi-Fi signal (off by default).
 - Binary sensors: water tank full (also with the tank removed), filter cleaning (every
-  250 hours), with a **Reset filter reminder** button.
+  250 hours) with a **Reset filter reminder** button, and **fault**: the device reports an
+  error other than the full tank (which one shows only on its display).
 - Switches: swing, Health (UV + Ion), light, mute, child lock; ambient light on 13806.
 
 The device's panel rules hold here too: Dry and Purify have no target humidity, Dry keeps
-the fan at High, Purify keeps Health on. Home Assistant refuses such a change with an
-error instead of sending what the device would ignore. Two seconds after every command
-the state is read back: the device may ignore a value or change others itself (Dry turns
-the fan to High).
+the fan at High, Purify keeps Health on; with the water tank full, only the power and the
+child lock change. Home Assistant refuses such a change with an error instead of sending
+what the device would ignore. Two seconds after every command the state is read back: the
+device may ignore a value or change others itself (Dry turns the fan to High).
 
 Good to know:
 - The device beeps at every command unless **Mute** is on; mute also silences its tank-full
   alarm, so watch the tank in Home Assistant.
 - From the network, Health turns on both UV and ion; choosing one is only on the panel.
 - The panel's timer is not visible on the network: use automations.
-- Error code: 0 means no error; a full tank counts as an error too.
+- Settings changed while the dehumidifier is off (target, fan, swing) are kept and apply
+  when it is turned on.
+- Error code: 0 means no error; a full tank counts as an error too, the fault sensor leaves
+  it out.
 
 ## Fully local
 
@@ -91,17 +97,24 @@ a Home Assistant app, stands in for the Gree cloud on your network, so the devic
 working with its internet access blocked. This integration does not need it: without it,
 leave the device its internet access.
 
+## Requirements
+
+| Requirement | Details |
+|---|---|
+| Home Assistant | 2025.3 or newer |
+| Device setup | The dehumidifier must already be connected to your Wi-Fi with the **EWPE Smart** (or **Gree+**) app |
+| Network | Home Assistant must reach the device on UDP port 7000 |
+| Python packages | None: AES comes from `cryptography`, which Home Assistant already has |
+
 ## Install
 
-1. Set the device up on Wi-Fi with the EWPE Smart app and give it a fixed address in your
-   router. Home Assistant must reach it on UDP port 7000.
+1. Give the device a fixed address in your router.
 2. In HACS, add `https://github.com/mysteriousdev777/ha-ewpe-local` as a custom repository
    (type Integration), install **EWPE Local** and restart Home Assistant.
 3. **Settings → Devices & services → Add integration → EWPE Local**. Leave the address
-   empty to search your network and pick the device, or enter its IP address (the search
-   does not reach other subnets). A new address later: **Reconfigure** on the integration.
-
-Home Assistant 2025.3 or newer. The integration installs no Python packages.
+   empty to search your network and pick the device, or enter its IP address: your
+   router's list of connected devices shows it. A new address later: **Reconfigure** on
+   the integration.
 
 ## How it works
 
@@ -119,8 +132,38 @@ The search sends one broadcast scan while you add the device. After that the int
 talks only to the address in the entry and never changes it by itself: the protocol does
 not authenticate devices, so any device on the network could answer for another.
 
-**Download diagnostics** on the device shows the model, firmware and raw status, without
-the address and MAC.
+## Troubleshooting
+
+**The dehumidifier is unavailable.**
+- Check that it answers `ping` from the Home Assistant host, and that nothing blocks UDP
+  port 7000 between them (a firewall, VLAN rules).
+- The module answers on the local network only while it reaches its cloud: give it
+  internet access, or run [EWPE Keepalive](#fully-local).
+- After a firmware update of the Wi-Fi module, use **Reconfigure**: it also detects the
+  encryption again.
+
+**The address changed.** Use **Reconfigure** on the integration and enter the new one. A
+fixed address in the router avoids this; the integration does not follow the device by
+itself (see [How it works](#how-it-works)).
+
+**The Wi-Fi module was reset.** Connect it with the app again. The integration needs
+nothing more: it gets the new device key by itself, as the key is never stored. If the
+address changed too, use **Reconfigure**.
+
+**The search finds nothing.** The search is a broadcast: it does not reach other subnets
+or VLANs, nor leave a Docker container without host networking (`network_mode: host`).
+Enter the address instead.
+
+**Diagnostics and logs.** **Download diagnostics** on the device shows the model,
+firmware and raw status, without the address and MAC. For a debug log, add this to
+`configuration.yaml` and restart Home Assistant (unlike diagnostics, the log shows the
+device's address):
+
+```yaml
+logger:
+  logs:
+    custom_components.ewpe_local: debug
+```
 
 ## Development
 
@@ -144,6 +187,13 @@ and the HACS check.
 
 **Privacy.** `tools/privacy_check.py` fails on private addresses and MAC addresses in the
 files; list your own MACs, network and user names in `.privacy-local` (ignored by git).
+
+## Credits
+
+- [tomikaa87/gree-remote](https://github.com/tomikaa87/gree-remote): where the Gree LAN
+  protocol was first worked out.
+- [greeclimate](https://github.com/cmroche/greeclimate): the implementation of the
+  protocol that the tests check this one against.
 
 ## License
 

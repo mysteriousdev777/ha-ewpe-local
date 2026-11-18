@@ -1,4 +1,4 @@
-"""Entities: states from the fake module, commands, mode locks, availability."""
+"""Entities: states from the fake module, commands, mode and tank locks, availability."""
 
 from __future__ import annotations
 
@@ -87,6 +87,7 @@ async def test_states(hass: HomeAssistant, entry: MockConfigEntry) -> None:
         "sensor.dehumidifier_error_code": "0",
         "binary_sensor.dehumidifier_water_tank_full": STATE_OFF,
         "binary_sensor.dehumidifier_filter_cleaning": STATE_OFF,
+        "binary_sensor.dehumidifier_fault": STATE_OFF,
         "switch.dehumidifier_swing": STATE_OFF,
         "switch.dehumidifier_health_uv_ion": STATE_ON,
         "switch.dehumidifier_light": STATE_ON,
@@ -160,6 +161,99 @@ async def test_what_the_mode_keeps_is_no_error(
     await confirm(hass)
     await call(hass, "switch", SERVICE_TURN_ON, "switch.dehumidifier_health_uv_ion")
     assert module.commands == [{"Dmod": 5}, {"Dmod": 9}]
+
+
+async def test_full_tank_allows_power_and_child_lock_only(
+    hass: HomeAssistant, entry: MockConfigEntry, module: FakeModule
+) -> None:
+    """As the panel: with the tank full only power and the child lock change."""
+    module.status.update(DwatFul=1, AllErr=1)  # the full tank sets the error flag too
+    await poll(hass)
+    assert hass.states.get("binary_sensor.dehumidifier_water_tank_full").state == (
+        STATE_ON
+    )
+    assert hass.states.get("binary_sensor.dehumidifier_fault").state == STATE_OFF
+    assert hass.states.get("sensor.dehumidifier_error_code").state == "1"
+
+    refused = [
+        ("humidifier", SERVICE_SET_MODE, DEHUMIDIFIER, {"mode": "dry"}),
+        ("humidifier", SERVICE_SET_HUMIDITY, DEHUMIDIFIER, {"humidity": 60}),
+        ("select", SERVICE_SELECT_OPTION, FAN, {ATTR_OPTION: "high"}),
+        ("switch", SERVICE_TURN_ON, "switch.dehumidifier_swing", {}),
+        ("switch", SERVICE_TURN_OFF, "switch.dehumidifier_light", {}),
+        ("switch", SERVICE_TURN_ON, "switch.dehumidifier_mute", {}),
+        ("switch", SERVICE_TURN_OFF, "switch.dehumidifier_health_uv_ion", {}),
+    ]
+    for domain, service, entity_id, data in refused:
+        with pytest.raises(ServiceValidationError) as err:
+            await call(hass, domain, service, entity_id, **data)
+        assert err.value.translation_key == "tank_full", (service, entity_id)
+    # What the device has anyway is no error and sends nothing.
+    await call(hass, "switch", SERVICE_TURN_OFF, "switch.dehumidifier_swing")
+    assert module.commands == []
+
+    await call(hass, "switch", SERVICE_TURN_ON, "switch.dehumidifier_child_lock")
+    await call(
+        hass, "button", SERVICE_PRESS, "button.dehumidifier_reset_filter_reminder"
+    )
+    await call(hass, "humidifier", SERVICE_TURN_OFF, DEHUMIDIFIER)
+    assert module.commands == [{"ChildLock": 1}, {"Dfltr": 0}, {"Pow": 0}]
+
+
+async def test_emptied_tank_is_read_before_refusing(
+    hass: HomeAssistant, entry: MockConfigEntry, module: FakeModule
+) -> None:
+    """The tank was emptied after the last poll: the command goes through."""
+    tank = "binary_sensor.dehumidifier_water_tank_full"
+    module.status.update(DwatFul=1, AllErr=1)
+    await poll(hass)
+    assert hass.states.get(tank).state == STATE_ON
+
+    module.status.update(DwatFul=0, AllErr=0)  # emptied: Home Assistant has not polled
+    await call(hass, "switch", SERVICE_TURN_ON, "switch.dehumidifier_swing")
+    assert module.commands == [{"SwUpDn": 1}]
+    assert hass.states.get(tank).state == STATE_OFF
+
+
+async def test_mode_changed_on_the_panel_is_read_before_refusing(
+    hass: HomeAssistant, entry: MockConfigEntry, module: FakeModule
+) -> None:
+    """Dry left on the panel after the last poll: the fan can change."""
+    await call(hass, "humidifier", SERVICE_SET_MODE, DEHUMIDIFIER, mode="dry")
+    await confirm(hass)
+    module.status["Dmod"] = 2  # Dehumidify chosen on the panel
+    await call(hass, "select", SERVICE_SELECT_OPTION, FAN, **{ATTR_OPTION: "medium"})
+    assert module.commands == [{"Dmod": 5}, {"WdSpd": 3}]
+    assert hass.states.get(DEHUMIDIFIER).attributes[ATTR_MODE] == "dehumidify"
+
+
+async def test_refused_when_the_read_before_gets_no_answer(
+    hass: HomeAssistant, entry: MockConfigEntry, module: FakeModule
+) -> None:
+    """A silent device: the last known state decides, the device turns unavailable."""
+    module.status["DwatFul"] = 1
+    await poll(hass)
+    module.silent = True
+    with pytest.raises(ServiceValidationError):
+        await call(hass, "switch", SERVICE_TURN_ON, "switch.dehumidifier_swing")
+    assert module.commands == []
+    assert hass.states.get(DEHUMIDIFIER).state == STATE_UNAVAILABLE
+
+
+async def test_fault_is_the_error_flag_without_the_full_tank(
+    hass: HomeAssistant, entry: MockConfigEntry, module: FakeModule
+) -> None:
+    fault = "binary_sensor.dehumidifier_fault"
+    module.status["AllErr"] = 1
+    await poll(hass)
+    assert hass.states.get(fault).state == STATE_ON
+    # Commands are not locked by a fault: the panel locks for the full tank only.
+    await call(hass, "switch", SERVICE_TURN_ON, "switch.dehumidifier_swing")
+    assert module.commands == [{"SwUpDn": 1}]
+
+    module.status["AllErr"] = 0
+    await poll(hass)
+    assert hass.states.get(fault).state == STATE_OFF
 
 
 async def test_lost_echo_is_read_back(

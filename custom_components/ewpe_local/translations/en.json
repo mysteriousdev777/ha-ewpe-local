@@ -107,6 +107,9 @@
       },
       "filter": {
         "name": "Filter cleaning"
+      },
+      "fault": {
+        "name": "Fault"
       }
     },
     "switch": {
@@ -141,6 +144,9 @@
     },
     "locked": {
       "message": "This can't be changed in the {mode} mode."
+    },
+    "tank_full": {
+      "message": "This can't be changed while the water tank is full."
     },
     "unknown_mode": {
       "message": "Unknown mode: {mode}."
