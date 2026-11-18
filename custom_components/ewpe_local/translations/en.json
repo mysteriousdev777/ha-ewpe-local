@@ -1,0 +1,152 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "description": "The device must already be on your Wi-Fi: set it up with the EWPE Smart app first. Give it a fixed address in your router.",
+        "data": {
+          "host": "IP address"
+        },
+        "data_description": {
+          "host": "The device's IPv4 address. Leave it empty to search your network."
+        }
+      },
+      "pick_device": {
+        "description": "Dehumidifiers that answered the search and are not added yet.",
+        "data": {
+          "mac": "Device"
+        },
+        "data_description": {
+          "mac": "IP address and MAC address: your router lists both."
+        }
+      },
+      "reconfigure": {
+        "description": "Change the device's address.",
+        "data": {
+          "host": "IP address"
+        },
+        "data_description": {
+          "host": "The device's IPv4 address on your network."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "No answer from this address on UDP port 7000. Check the address, and that the device is on and answers locally.",
+      "invalid_host": "Enter an IPv4 address: four numbers separated by dots.",
+      "no_devices_found": "No new dehumidifier answered the search. Check that it is on, or enter its IP address: the search does not reach other subnets."
+    },
+    "abort": {
+      "already_configured": "This device is already added; its address was updated.",
+      "already_in_progress": "This device is already being set up.",
+      "not_dehumidifier": "This device (MID {mid}) is not a dehumidifier. Gree air conditioners work with the built-in Gree Climate integration.",
+      "unsupported_model": "This dehumidifier model (MID {mid}, variant {vender}) is not supported.",
+      "wrong_device": "Another device answers at this address.",
+      "reconfigure_successful": "The address was changed."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "scan_interval": "Polling interval"
+        },
+        "data_description": {
+          "scan_interval": "How often the device's state is read, 15 to 300 seconds. After a command the state is also read 2 seconds later."
+        }
+      }
+    }
+  },
+  "entity": {
+    "humidifier": {
+      "dehumidifier": {
+        "state_attributes": {
+          "mode": {
+            "state": {
+              "dehumidify": "Dehumidify",
+              "dry": "Dry (laundry)",
+              "purify": "Purify"
+            }
+          }
+        }
+      }
+    },
+    "select": {
+      "fan_speed": {
+        "name": "Fan speed",
+        "state": {
+          "auto": "Auto",
+          "low": "Low",
+          "medium": "Medium",
+          "high": "High"
+        }
+      }
+    },
+    "sensor": {
+      "pm25_level": {
+        "name": "PM2.5 level",
+        "state": {
+          "excellent": "Excellent",
+          "good": "Good",
+          "bad": "Bad"
+        }
+      },
+      "odor_level": {
+        "name": "Odor level",
+        "state": {
+          "normal": "Normal",
+          "slight": "Slight",
+          "serious": "Serious"
+        }
+      },
+      "error_code": {
+        "name": "Error code"
+      }
+    },
+    "binary_sensor": {
+      "water_tank_full": {
+        "name": "Water tank full"
+      },
+      "filter": {
+        "name": "Filter cleaning"
+      }
+    },
+    "switch": {
+      "swing": {
+        "name": "Swing"
+      },
+      "health": {
+        "name": "Health (UV + Ion)"
+      },
+      "light": {
+        "name": "Light"
+      },
+      "ambient_light": {
+        "name": "Ambient light"
+      },
+      "mute": {
+        "name": "Mute"
+      },
+      "child_lock": {
+        "name": "Child lock"
+      }
+    },
+    "button": {
+      "reset_filter": {
+        "name": "Reset filter reminder"
+      }
+    }
+  },
+  "exceptions": {
+    "no_answer": {
+      "message": "No answer from the device at {host}."
+    },
+    "locked": {
+      "message": "This can't be changed in the {mode} mode."
+    },
+    "unknown_mode": {
+      "message": "Unknown mode: {mode}."
+    },
+    "unsupported_model": {
+      "message": "This version does not support the model with MID {mid}."
+    }
+  }
+}

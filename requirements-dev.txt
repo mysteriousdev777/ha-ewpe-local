@@ -1,0 +1,5 @@
+# Development and CI. Home Assistant 2026.10.4 with its test harness (Python 3.14),
+# the integration's one requirement at the version of manifest.json, and the linter.
+pytest-homeassistant-custom-component==0.13.375
+greeclimate==4.3.2
+ruff==0.17.3

@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+# Read-only: no secrets, no writes, nothing published.
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Tests and lint (Home Assistant 2026.10.4, Python 3.14)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14"
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: pytest -v
+
+  # The minimum Home Assistant of hacs.json: change both together. The test harness of
+  # that release, its packages as of the release date and Core's own constraints, as
+  # Home Assistant installs them; newer only what Home Assistant installs for the
+  # integration when it is added (greeclimate as in manifest.json, pycryptodome).
+  tests-min:
+    name: Tests (Home Assistant 2025.3.0, Python 3.13)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - run: python -m pip install uv==0.13.6
+      - run: >-
+          curl -fsSL -o "$RUNNER_TEMP/constraints.txt"
+          https://raw.githubusercontent.com/home-assistant/core/2025.3.0/homeassistant/package_constraints.txt
+      # aiohttp 3.11.13 is yanked on PyPI; Core pins it, and an explicit pin takes it.
+      - run: >-
+          uv pip install --system -c "$RUNNER_TEMP/constraints.txt"
+          --exclude-newer 2025-03-08
+          --exclude-newer-package greeclimate=2026-11-19
+          --exclude-newer-package pycryptodome=2026-11-19
+          --exclude-newer-package pytest-homeassistant-custom-component=2026-11-19
+          pytest-homeassistant-custom-component==0.13.221
+          greeclimate==4.3.2
+          aiohttp==3.11.13
+      - run: pytest -v
+
+  hassfest:
+    name: hassfest
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: home-assistant/actions/hassfest@86d4564712fa02543c808e3a693dd04f9d3f8361 # master, 2026-10-26
+
+  hacs:
+    name: HACS
+    runs-on: ubuntu-24.04
+    steps:
+      # Brands: not in home-assistant/brands (yet). The repository's description and
+      # topics, also checked, are set on GitHub.
+      - uses: hacs/action@1ebf01c408f29afcb6406bd431bc98fd8cbb15aa # main, 2026-06-08
+        with:
+          category: integration
+          ignore: brands
+          comment: false
+
+  privacy:
+    name: Privacy
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14"
+      - run: python tools/privacy_check.py

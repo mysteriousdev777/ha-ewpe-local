@@ -1,0 +1,25 @@
+# Tool settings only: the integration is installed by HACS, not as a package.
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py313"  # Home Assistant 2025.3 to 2025.12 runs Python 3.13 (hacs.json minimum)
+line-length = 88  # as Home Assistant core; `ruff format` wraps the code
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "ASYNC", "PL"]
+ignore = [
+  "E501",  # line length: the formatter wraps code; long strings and URLs may stay
+  "PLR0913",  # entity and fixture signatures
+  "PLR0917",  # parametrized tests take many fixtures
+  "PLR2004",  # protocol codes are numbers
+]
+
+[tool.ruff.lint.isort]
+force-sort-within-sections = true
+known-first-party = ["custom_components", "homeassistant"]
+combine-as-imports = true
