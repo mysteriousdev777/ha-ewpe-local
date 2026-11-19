@@ -136,13 +136,37 @@ leave the device its internet access.
 
 ## Install
 
-1. Give the device a fixed address in your router.
-2. In HACS, add `https://github.com/mysteriousdev777/ha-ewpe-local` as a custom repository
-   (type Integration), install **EWPE Local** and restart Home Assistant.
-3. **Settings → Devices & services → Add integration → EWPE Local**. Leave the address
-   empty to search your network and pick the device, or enter its IP address: your
-   router's list of connected devices shows it. A new address later: **Reconfigure** on
-   the integration.
+First give the dehumidifier a fixed address in your router: the integration keeps the
+address it was added with.
+
+### Through HACS
+
+[![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=mysteriousdev777&repository=ha-ewpe-local&category=integration)
+
+The button opens this repository in your HACS and offers to add it; then go on from
+step 4. Without the button:
+
+1. Make sure [HACS](https://hacs.xyz/) is installed.
+2. Open **HACS** in the Home Assistant sidebar, then the **⋮** menu in the top-right
+   corner → **Custom repositories**.
+3. In **Repository** enter `https://github.com/mysteriousdev777/ha-ewpe-local`, as
+   **Type** choose **Integration**, click **Add** and close the dialog.
+4. Search for **EWPE Local** in HACS, open it, click **Download** in the bottom-right
+   corner and **Download** again in the dialog.
+5. Restart Home Assistant: **Settings → ⋮** (top-right) **→ Restart Home Assistant**.
+
+### Add the dehumidifier
+
+[![Add integration](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=ewpe_local)
+
+1. **Settings → Devices & services → Add integration** (bottom-right) → **EWPE Local**.
+2. Leave the address empty to search your network and pick the dehumidifier, or enter its
+   IP address: your router's list of connected devices shows it.
+3. Home Assistant shows the new device with its name and an area. The name makes the
+   entity IDs: **Dehumidifier** gives `humidifier.dehumidifier`,
+   `sensor.dehumidifier_humidity` and so on.
+
+A new address later: **Reconfigure** in the integration's **⋮** menu.
 
 ## How it works
 
