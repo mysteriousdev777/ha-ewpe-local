@@ -139,12 +139,21 @@ leave the device its internet access.
 First give the dehumidifier a fixed address in your router: the integration keeps the
 address it was added with.
 
-### Through HACS
+[![Open in the Marketplace or HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=mysteriousdev777&repository=ha-ewpe-local&category=integration)
 
-[![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=mysteriousdev777&repository=ha-ewpe-local&category=integration)
+The button opens this repository in the Marketplace (Home Assistant 2026.11 or newer) or
+in HACS (older versions). Then go on from **Install** or **Download** in the steps below.
 
-The button opens this repository in your HACS and offers to add it; then go on from
-step 4. Without the button:
+### Home Assistant 2026.11 or newer: Marketplace
+
+1. **Settings → Marketplace → Add from link** (top-right).
+2. Enter `mysteriousdev777/ha-ewpe-local` and click **Add**; if asked for **Type**, choose
+   **Integration**. The first time, Home Assistant asks you to connect GitHub: open the
+   link it shows and enter the code there.
+3. Open **EWPE Local** in the list, click **Install** and **Install** again to confirm.
+4. Restart Home Assistant: **Settings → ⋮** (top-right) **→ Restart Home Assistant**.
+
+### Older Home Assistant: HACS
 
 1. Make sure [HACS](https://hacs.xyz/) is installed.
 2. Open **HACS** in the Home Assistant sidebar, then the **⋮** menu in the top-right
