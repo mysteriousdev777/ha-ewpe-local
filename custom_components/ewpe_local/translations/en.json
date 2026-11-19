@@ -32,6 +32,7 @@
     "error": {
       "cannot_connect": "No answer from this address on UDP port 7000. Check the address, and that the device is on and answers locally.",
       "invalid_host": "Enter an IPv4 address: four numbers separated by dots.",
+      "port_closed": "The device at this address refused UDP port 7000. Check the address: it may be another device. A Gree module that refuses this port cannot be controlled locally.",
       "no_devices_found": "No new dehumidifier answered the search. Check that it is on, or enter its IP address: the search does not reach other subnets."
     },
     "abort": {
@@ -151,8 +152,55 @@
     "unknown_mode": {
       "message": "Unknown mode: {mode}."
     },
+    "unknown_fan_speed": {
+      "message": "Unknown fan speed: {fan_speed}."
+    },
+    "humidity_out_of_range": {
+      "message": "The target humidity must be from {min} to {max} %, not {humidity} %."
+    },
     "unsupported_model": {
       "message": "This version does not support the model with MID {mid}."
+    }
+  },
+  "services": {
+    "set_state": {
+      "name": "Set state",
+      "description": "Sets several things in one command, so the dehumidifier beeps once: any of power, mode, target humidity and fan speed. The panel's rules hold for the mode the command sets.",
+      "fields": {
+        "power": {
+          "name": "Power",
+          "description": "On or off. The other settings of the command are applied first, so it turns on with them."
+        },
+        "mode": {
+          "name": "Mode",
+          "description": "Dry and Purify have no target humidity; Dry keeps the fan at High."
+        },
+        "humidity": {
+          "name": "Target humidity",
+          "description": "From 30 to 80 %, in steps of 5 %."
+        },
+        "fan_speed": {
+          "name": "Fan speed",
+          "description": "Not in Dry, which keeps the fan at High."
+        }
+      }
+    }
+  },
+  "selector": {
+    "mode": {
+      "options": {
+        "dehumidify": "Dehumidify",
+        "dry": "Dry (laundry)",
+        "purify": "Purify"
+      }
+    },
+    "fan_speed": {
+      "options": {
+        "auto": "Auto",
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High"
+      }
     }
   }
 }

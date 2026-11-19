@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta
 import logging
 from typing import Any
@@ -32,6 +32,7 @@ from .models import Model
 from .protocol import (
     FIRMWARE,
     MODE,
+    POWER,
     TANK_FULL,
     as_bool,
     as_int,
@@ -40,6 +41,11 @@ from .protocol import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# Keys of one command: the mode first, as it may change other keys itself (Dry turns
+# the fan to High); the power last, so the device turns on or off with the settings
+# of the command (tested with the fan).
+_COMMAND_ORDER: Mapping[str, int] = {MODE: -1, POWER: 1}
 
 type EwpeConfigEntry = ConfigEntry[EwpeCoordinator]
 
@@ -100,12 +106,37 @@ class EwpeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Whether the current mode keeps a key from changing."""
         return self.model.locked(column, self.mode)
 
-    def _lock(self, column: str) -> tuple[str, dict[str, str] | None] | None:
-        """Why the panel would not let a key change now: translation key, placeholders."""
+    def _lock(
+        self, column: str, mode: str | None
+    ) -> tuple[str, dict[str, str] | None] | None:
+        """Why the panel would not let a key change in a mode: error key, placeholders."""
         if self.model.tank_locked(column, as_bool(self.data.get(TANK_FULL))):
             return "tank_full", None
-        if self.locked(column):
-            return "locked", {"mode": str(self.mode)}
+        if self.model.locked(column, mode):
+            return "locked", {"mode": str(mode)}
+        return None
+
+    def _mode_after(self, values: Mapping[str, int]) -> str | None:
+        """The mode once a command with these keys is done."""
+        return decode(self.model.modes, values[MODE]) if MODE in values else self.mode
+
+    def _kept(self, column: str, mode: str | None) -> int | None:
+        """A key's value in a mode, unless a command sets it: the mode's own or as is."""
+        forced = self.model.forced(column, mode)
+        return as_int(self.data.get(column)) if forced is None else forced
+
+    def _refusal(
+        self, values: Mapping[str, int]
+    ) -> tuple[str, dict[str, str] | None] | None:
+        """Why the panel would refuse a command: the lock of a key it would change.
+
+        A key is compared with its value once the command is done: Dry with the fan at
+        High asks for nothing Dry does not do itself, whatever the fan was before.
+        """
+        mode = self._mode_after(values)
+        for column, value in values.items():
+            if value != self._kept(column, mode) and (lock := self._lock(column, mode)):
+                return lock
         return None
 
     async def _async_update_data(self) -> dict[str, Any]:
@@ -134,21 +165,39 @@ class EwpeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_set(self, column: str, value: int) -> None:
         """Write one status key, then read the device back."""
-        if self._lock(column) is not None and as_int(self.data.get(column)) != value:
+        await self.async_set_many({column: value})
+
+    async def async_set_many(self, values: Mapping[str, int]) -> None:
+        """Write status keys in one command, then read the device back.
+
+        One command, one beep of the device. The panel's locks are those of the mode the
+        device is in once the command is done: from Dry, a command with Dehumidify may
+        set the target.
+        """
+        if self._refusal(values) is not None:
             # The tank may have been emptied, or the mode changed on the panel, since
             # the last poll: read the device once before refusing.
             await self.async_refresh()
-        if (lock := self._lock(column)) is not None:
-            if as_int(self.data.get(column)) == value:
-                return  # what the device keeps anyway (Health on in Purify): no error
-            translation_key, placeholders = lock
+        if (refusal := self._refusal(values)) is not None:
+            translation_key, placeholders = refusal
             raise ServiceValidationError(
                 translation_domain=DOMAIN,
                 translation_key=translation_key,
                 translation_placeholders=placeholders,
             )
+        # What a locked key has anyway (High in Dry, Health on in Purify) is not sent.
+        mode = self._mode_after(values)
+        command = {
+            column: value
+            for column, value in sorted(
+                values.items(), key=lambda item: _COMMAND_ORDER.get(item[0], 0)
+            )
+            if self._lock(column, mode) is None
+        }
+        if not command:
+            return
         try:
-            echo = await self.client.command({column: value})
+            echo = await self.client.command(command)
         except EwpeError as err:
             # The device may have done it and only the reply got lost: read it back.
             if not self.client.closed:

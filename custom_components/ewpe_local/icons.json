@@ -72,5 +72,10 @@
         "default": "mdi:air-filter"
       }
     }
+  },
+  "services": {
+    "set_state": {
+      "service": "mdi:tune-variant"
+    }
   }
 }

@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.ewpe_local.client import EwpeError
+from custom_components.ewpe_local.client import EwpeError, EwpePortClosed
 from custom_components.ewpe_local.const import (
     CONF_CIPHER,
     CONF_MID,
@@ -194,6 +194,24 @@ async def test_cannot_connect_then_retry(
     assert result["type"] is FlowResultType.CREATE_ENTRY
 
 
+async def test_port_closed_then_retry(
+    hass: HomeAssistant, scan: AsyncMock, handshake: AsyncMock
+) -> None:
+    good = scan.return_value
+    scan.side_effect = EwpePortClosed("refused")
+    result = await start(hass)
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "port_closed"}
+    handshake.assert_not_awaited()
+
+    scan.side_effect = None
+    scan.return_value = good
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_HOST: HOST}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
 async def test_already_added_updates_the_address(
     hass: HomeAssistant, scan: AsyncMock, handshake: AsyncMock
 ) -> None:
@@ -340,14 +358,26 @@ async def test_reconfigure_to_another_device(
     assert entry.data[CONF_HOST] == HOST
 
 
+@pytest.mark.parametrize(
+    ("error", "reason"),
+    [
+        (EwpeError("no reply"), "cannot_connect"),
+        (EwpePortClosed("refused"), "port_closed"),
+    ],
+)
 async def test_reconfigure_cannot_connect(
-    hass: HomeAssistant, scan: AsyncMock, handshake: AsyncMock
+    hass: HomeAssistant,
+    scan: AsyncMock,
+    handshake: AsyncMock,
+    error: EwpeError,
+    reason: str,
 ) -> None:
     entry = _entry(hass)
     result = await entry.start_reconfigure_flow(hass)
-    scan.side_effect = EwpeError("no reply")
+    scan.side_effect = error
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {CONF_HOST: NEW_HOST}
     )
     assert result["type"] is FlowResultType.FORM
-    assert result["errors"] == {"base": "cannot_connect"}
+    assert result["errors"] == {"base": reason}
+    assert entry.data[CONF_HOST] == HOST

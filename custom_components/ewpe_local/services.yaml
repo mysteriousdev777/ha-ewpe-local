@@ -1,0 +1,33 @@
+set_state:
+  target:
+    entity:
+      integration: ewpe_local
+      domain: humidifier
+  fields:
+    power:
+      selector:
+        boolean:
+    mode:
+      selector:
+        select:
+          options:
+            - dehumidify
+            - dry
+            - purify
+          translation_key: mode
+    humidity:
+      selector:
+        number:
+          min: 30
+          max: 80
+          step: 5
+          unit_of_measurement: "%"
+    fan_speed:
+      selector:
+        select:
+          options:
+            - auto
+            - low
+            - medium
+            - high
+          translation_key: fan_speed

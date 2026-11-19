@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncGenerator
 from ipaddress import IPv4Address
+import socket
 
 import pytest
 
@@ -12,6 +13,7 @@ from custom_components.ewpe_local import client
 from custom_components.ewpe_local.client import (
     EwpeClient,
     EwpeError,
+    EwpePortClosed,
     discover,
     handshake,
     scan,
@@ -164,8 +166,23 @@ async def test_scan(module_on_7000: FakeModule) -> None:
 
 async def test_scan_without_answer(module_on_7000: FakeModule) -> None:
     module_on_7000.silent = True
-    with pytest.raises(EwpeError):
+    with pytest.raises(EwpeError) as err:
         await scan("127.0.0.1")
+    assert not isinstance(err.value, EwpePortClosed)  # the port is open
+
+
+async def test_scan_of_a_refused_port(
+    socket_enabled: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Nothing listens on the port: the scan says so at once, not after its timeout."""
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as free:
+        free.bind(("127.0.0.1", 0))
+        port = free.getsockname()[1]
+    monkeypatch.setattr(client, "PORT", port)
+    monkeypatch.setattr(client, "SCAN_TIMEOUT", 30)
+    async with asyncio.timeout(5):
+        with pytest.raises(EwpePortClosed):
+            await scan("127.0.0.1")
 
 
 async def test_discover_one_entry_per_device(module_on_7000: FakeModule) -> None:

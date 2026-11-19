@@ -10,8 +10,13 @@ from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     async_fire_time_changed,
 )
+import voluptuous as vol
 
-from custom_components.ewpe_local.const import CONFIRM_DELAY, DEFAULT_SCAN_INTERVAL
+from custom_components.ewpe_local.const import (
+    CONFIRM_DELAY,
+    DEFAULT_SCAN_INTERVAL,
+    DOMAIN,
+)
 from homeassistant.components import humidifier
 from homeassistant.components.button import SERVICE_PRESS
 from homeassistant.components.humidifier import (
@@ -33,6 +38,8 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.helpers.service import async_get_all_descriptions
+from homeassistant.helpers.translation import async_get_translations
 from homeassistant.util import dt as dt_util
 
 from .fake_module import FakeModule
@@ -281,6 +288,148 @@ async def test_switches_and_button(
     )
     assert module.commands == [{"Quiet": 2}, {"SwUpDn": 1}, {"Lig": 0}, {"Dfltr": 0}]
     assert hass.states.get("switch.dehumidifier_mute").state == STATE_ON
+
+
+async def set_state(hass: HomeAssistant, **data: Any) -> None:
+    await call(hass, DOMAIN, "set_state", DEHUMIDIFIER, **data)
+
+
+async def test_set_state_turns_on_with_the_fan_low(
+    hass: HomeAssistant, entry: MockConfigEntry, module: FakeModule
+) -> None:
+    """Off with the fan at High, as after power returns: on at Low in one command."""
+    module.status.update(Pow=0, WdSpd=5)
+    await poll(hass)
+    await set_state(hass, power=True, fan_speed="low")
+    assert module.commands == [{"WdSpd": 1, "Pow": 1}]
+    assert list(module.commands[0]) == ["WdSpd", "Pow"]  # the power last
+    assert hass.states.get(DEHUMIDIFIER).state == STATE_ON
+    assert hass.states.get(FAN).state == "low"
+    await confirm(hass)
+    assert hass.states.get(FAN).state == "low"
+
+
+async def test_set_state_sends_the_mode_first_and_the_power_last(
+    hass: HomeAssistant, entry: MockConfigEntry, module: FakeModule
+) -> None:
+    await set_state(
+        hass, power=False, fan_speed="medium", humidity=55, mode="dehumidify"
+    )
+    (command,) = module.commands
+    assert command == {"Dmod": 2, "Dwet": 8, "WdSpd": 3, "Pow": 0}
+    assert list(command) == ["Dmod", "Dwet", "WdSpd", "Pow"]
+    state = hass.states.get(DEHUMIDIFIER)
+    assert state.state == STATE_OFF
+    assert state.attributes[ATTR_HUMIDITY] == 55
+    assert hass.states.get(FAN).state == "medium"
+
+
+async def test_set_state_locks_follow_the_mode_it_sets(
+    hass: HomeAssistant, entry: MockConfigEntry, module: FakeModule
+) -> None:
+    """Out of Dry, the target and the fan can come with the mode; into Dry, not."""
+    await call(hass, "humidifier", SERVICE_SET_MODE, DEHUMIDIFIER, mode="dry")
+    await confirm(hass)
+    assert hass.states.get(FAN).state == "high"
+
+    await set_state(hass, mode="dehumidify", humidity=55, fan_speed="low")
+    assert module.commands[-1] == {"Dmod": 2, "Dwet": 8, "WdSpd": 1}
+    await confirm(hass)
+    state = hass.states.get(DEHUMIDIFIER)
+    assert state.attributes[ATTR_MODE] == "dehumidify"
+    assert state.attributes[ATTR_HUMIDITY] == 55
+    assert hass.states.get(FAN).state == "low"  # set after the mode, not kept at High
+
+    with pytest.raises(ServiceValidationError) as err:
+        await set_state(hass, mode="dry", fan_speed="medium")
+    assert err.value.translation_key == "locked"
+    # Dry keeps the target as it is (55): another one is refused, that one is no error
+    # and not sent.
+    with pytest.raises(ServiceValidationError) as err:
+        await set_state(hass, mode="dry", humidity=50)
+    assert err.value.translation_key == "locked"
+    await set_state(hass, mode="dry", humidity=55)
+    assert module.commands[-1] == {"Dmod": 5}
+    assert len(module.commands) == 3
+
+
+async def test_set_state_into_dry_with_the_fan_it_sets(
+    hass: HomeAssistant, entry: MockConfigEntry, module: FakeModule
+) -> None:
+    """Dry turns the fan to High itself: asking for High with it is no error."""
+    assert hass.states.get(FAN).state == "low"
+    await set_state(hass, mode="dry", fan_speed="high")
+    assert module.commands == [{"Dmod": 5}]
+    await confirm(hass)
+    assert hass.states.get(FAN).state == "high"
+
+
+async def test_fan_right_after_dry_is_checked_against_high(
+    hass: HomeAssistant, entry: MockConfigEntry, module: FakeModule
+) -> None:
+    """Before the read-back the fan still shows Low, but Dry has set High already."""
+    await call(hass, "humidifier", SERVICE_SET_MODE, DEHUMIDIFIER, mode="dry")
+    assert hass.states.get(FAN).state == "low"  # not read back yet
+    with pytest.raises(ServiceValidationError) as err:
+        await call(hass, "select", SERVICE_SELECT_OPTION, FAN, **{ATTR_OPTION: "low"})
+    assert err.value.translation_key == "locked"
+    await call(hass, "select", SERVICE_SELECT_OPTION, FAN, **{ATTR_OPTION: "high"})
+    assert module.commands == [{"Dmod": 5}]
+
+
+async def test_set_state_with_the_tank_full(
+    hass: HomeAssistant, entry: MockConfigEntry, module: FakeModule
+) -> None:
+    module.status.update(DwatFul=1, AllErr=1)
+    await poll(hass)
+    with pytest.raises(ServiceValidationError) as err:
+        await set_state(hass, power=True, fan_speed="high")
+    assert err.value.translation_key == "tank_full"
+    assert module.commands == []
+    await set_state(hass, power=False)
+    assert module.commands == [{"Pow": 0}]
+
+
+@pytest.mark.parametrize(
+    ("data", "translation_key"),
+    [
+        ({"mode": "turbo"}, "unknown_mode"),
+        ({"fan_speed": "max", "power": True}, "unknown_fan_speed"),
+        ({"humidity": 85}, "humidity_out_of_range"),
+        ({"humidity": 25, "power": True}, "humidity_out_of_range"),
+    ],
+)
+async def test_set_state_refuses_unknown_values(
+    hass: HomeAssistant,
+    entry: MockConfigEntry,
+    module: FakeModule,
+    data: dict[str, Any],
+    translation_key: str,
+) -> None:
+    with pytest.raises(ServiceValidationError) as err:
+        await set_state(hass, **data)
+    assert err.value.translation_key == translation_key
+    assert module.commands == []
+
+
+async def test_set_state_needs_a_setting(
+    hass: HomeAssistant, entry: MockConfigEntry, module: FakeModule
+) -> None:
+    with pytest.raises(vol.Invalid):
+        await set_state(hass)
+    assert module.commands == []
+
+
+async def test_set_state_description(
+    hass: HomeAssistant, entry: MockConfigEntry
+) -> None:
+    """services.yaml and its translations, which the action editor shows."""
+    description = (await async_get_all_descriptions(hass))[DOMAIN]["set_state"]
+    assert list(description["fields"]) == ["power", "mode", "humidity", "fan_speed"]
+    translations = await async_get_translations(hass, "en", "services", [DOMAIN])
+    prefix = f"component.{DOMAIN}.services.set_state"
+    assert translations[f"{prefix}.name"] == "Set state"
+    assert translations[f"{prefix}.fields.fan_speed.name"] == "Fan speed"
 
 
 async def test_unavailable_and_back(

@@ -6,7 +6,8 @@ after a timeout). The first request binds: the device gives its key, kept in mem
 only; repeated failures start a new session with a new bind. The socket is connected to
 the device: the system passes only its datagrams.
 
-Also the scan, for adding a device: to one address, or a search by broadcast.
+Also the scan, for adding a device: to one address (which also tells a refused port),
+or a search by broadcast.
 
 No Home Assistant imports.
 """
@@ -39,6 +40,10 @@ class EwpeError(Exception):
     """The device did not answer, or the client is closed."""
 
 
+class EwpePortClosed(EwpeError):
+    """The address refused the port (ICMP port unreachable): nothing listens there."""
+
+
 class _SocketClosed(Exception):
     """The session's socket closed under a request."""
 
@@ -55,20 +60,27 @@ class _Pending:
 
 
 class _Socket(asyncio.DatagramProtocol):
-    """A UDP socket that hands its datagrams to a callback.
+    """A UDP socket that hands its datagrams, and its errors if asked, to callbacks.
 
     Socket errors are logged at debug level: an unreachable port (ICMP) would otherwise
     log at every poll; the request then times out and the coordinator reports it once.
     """
 
-    def __init__(self, received: Callable[[bytes, Any], None]) -> None:
+    def __init__(
+        self,
+        received: Callable[[bytes, Any], None],
+        failed: Callable[[Exception], None] | None = None,
+    ) -> None:
         self._received = received
+        self._failed = failed
 
     def datagram_received(self, data: bytes, addr: Any) -> None:
         self._received(data, addr)
 
     def error_received(self, exc: Exception) -> None:
         _LOGGER.debug("Socket error: %s", exc)
+        if self._failed is not None:
+            self._failed(exc)
 
 
 class EwpeClient:
@@ -235,15 +247,46 @@ class EwpeClient:
 
 
 async def scan(host: str) -> DeviceInfo:
-    """The scan reply of the device at an IPv4 address."""
+    """The scan reply of the device at an IPv4 address.
+
+    The socket is connected to the address: the system then passes only its datagrams,
+    and reports a refused port (ICMP port unreachable), which it does not for a socket
+    that is not connected. Raises EwpePortClosed for a refused port, at once, and
+    EwpeError when nothing answers in SCAN_TIMEOUT.
+    """
+    loop = asyncio.get_running_loop()
+    reply: asyncio.Future[DeviceInfo | None] = loop.create_future()  # None: refused
+
+    def received(data: bytes, addr: Any) -> None:
+        try:
+            info = packets.scan_reply(data, addr)
+        except InvalidPacket as err:
+            _LOGGER.debug("Ignoring a scan reply from %s: %s", host, err)
+            return
+        if not reply.done():
+            reply.set_result(info)
+
+    def failed(exc: Exception) -> None:
+        if isinstance(exc, ConnectionRefusedError) and not reply.done():
+            reply.set_result(None)
+
     try:
-        found = await _scan([host], until=host)
+        transport, _ = await loop.create_datagram_endpoint(
+            lambda: _Socket(received, failed), remote_addr=(host, PORT)
+        )
     except OSError as err:
         raise EwpeError(f"cannot scan {host}: {err}") from err
-    for info in found:
-        if info.ip == host:
-            return info
-    raise EwpeError(f"no scan reply from {host}")
+    try:
+        transport.sendto(packets.scan_request())
+        async with asyncio.timeout(SCAN_TIMEOUT):
+            info = await reply
+    except TimeoutError as err:
+        raise EwpeError(f"no scan reply from {host}") from err
+    finally:
+        transport.close()
+    if info is None:
+        raise EwpePortClosed(f"{host} refused UDP port {PORT}")
+    return info
 
 
 async def discover(addresses: Collection[IPv4Address | str]) -> list[DeviceInfo]:
@@ -260,15 +303,13 @@ async def discover(addresses: Collection[IPv4Address | str]) -> list[DeviceInfo]
         return []
 
 
-async def _scan(targets: Sequence[str], until: str | None = None) -> list[DeviceInfo]:
+async def _scan(targets: Sequence[str]) -> list[DeviceInfo]:
     """Send a scan to each target and gather the replies for SCAN_TIMEOUT.
 
-    One device per MAC, its latest reply. With `until`, stops at the first reply from
-    that address.
+    One device per MAC, its latest reply.
     """
     loop = asyncio.get_running_loop()
     found: dict[str, DeviceInfo] = {}
-    done: asyncio.Future[None] = loop.create_future()
 
     def received(data: bytes, addr: Any) -> None:
         try:
@@ -277,8 +318,6 @@ async def _scan(targets: Sequence[str], until: str | None = None) -> list[Device
             _LOGGER.debug("Ignoring a scan reply from %s: %s", addr[0], err)
             return
         found[info.mac] = info
-        if info.ip == until and not done.done():
-            done.set_result(None)
 
     transport, _ = await loop.create_datagram_endpoint(
         lambda: _Socket(received), local_addr=("0.0.0.0", 0), allow_broadcast=True
@@ -287,15 +326,9 @@ async def _scan(targets: Sequence[str], until: str | None = None) -> list[Device
         request = packets.scan_request()
         for target in targets:
             transport.sendto(request, (target, PORT))
-        try:
-            async with asyncio.timeout(SCAN_TIMEOUT):
-                await done  # without `until`, the whole time
-        except TimeoutError:
-            pass
+        await asyncio.sleep(SCAN_TIMEOUT)
     finally:
         transport.close()
-        if not done.done():
-            done.cancel()
     return list(found.values())
 
 

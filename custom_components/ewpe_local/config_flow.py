@@ -29,7 +29,7 @@ from homeassistant.helpers.selector import (
     NumberSelectorMode,
 )
 
-from .client import EwpeError, discover, handshake, scan
+from .client import EwpeError, EwpePortClosed, discover, handshake, scan
 from .const import (
     CONF_CIPHER,
     CONF_MID,
@@ -88,6 +88,8 @@ class EwpeLocalConfigFlow(ConfigFlow, domain=DOMAIN):
                     title, data = await self._async_probe(host)
                 except InvalidHost:
                     errors[CONF_HOST] = "invalid_host"
+                except EwpePortClosed:
+                    errors["base"] = "port_closed"
                 except EwpeError:
                     errors["base"] = "cannot_connect"
                 else:
@@ -134,6 +136,8 @@ class EwpeLocalConfigFlow(ConfigFlow, domain=DOMAIN):
                 _, data = await self._async_probe(user_input[CONF_HOST])
             except InvalidHost:
                 errors[CONF_HOST] = "invalid_host"
+            except EwpePortClosed:
+                errors["base"] = "port_closed"
             except EwpeError:
                 errors["base"] = "cannot_connect"
             else:
@@ -161,7 +165,8 @@ class EwpeLocalConfigFlow(ConfigFlow, domain=DOMAIN):
     async def _async_probe(self, host: str) -> tuple[str, dict[str, Any]]:
         """Title and entry data for the device at an address the user entered.
 
-        Raises InvalidHost, EwpeError (no answer) or AbortFlow (as _async_add).
+        Raises InvalidHost, EwpePortClosed (the address refuses the port), EwpeError
+        (no answer) or AbortFlow (as _async_add).
         """
         try:
             address = str(IPv4Address(host.strip()))

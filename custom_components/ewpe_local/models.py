@@ -55,12 +55,18 @@ class Model:
     # Status key → modes in which the panel does not let it change: the device then
     # ignores the value or sets its own (in Dry the fan is always High).
     locks: Mapping[str, frozenset[str]] = field(default_factory=dict)
+    # Mode → status keys the device sets itself when it enters the mode, and their values.
+    forces: Mapping[str, Mapping[str, int]] = field(default_factory=dict)
     # Status keys the panel does not let change while the water tank is full.
     tank_locks: frozenset[str] = frozenset()
 
     def locked(self, column: str, mode: str | None) -> bool:
         """Whether a key cannot be changed in a mode."""
         return mode is not None and mode in self.locks.get(column, frozenset())
+
+    def forced(self, column: str, mode: str | None) -> int | None:
+        """The value the device sets itself for a key in a mode, or None."""
+        return None if mode is None else self.forces.get(mode, {}).get(column)
 
     def tank_locked(self, column: str, tank_full: bool | None) -> bool:
         """Whether a key cannot be changed because the water tank is full."""
@@ -97,6 +103,9 @@ _13805: Final = Model(
         FAN: frozenset({"dry"}),
         HEALTH: frozenset({"purify"}),
     },
+    # Dry turns the fan to High (checked on the device); Purify turns Health on (the
+    # manual and the app's panel). Dry and Purify keep the target as it was.
+    forces={"dry": {FAN: 5}, "purify": {HEALTH: 1}},
     # Everything but the power and the child lock (and the filter reset, not a panel
     # button), as in the app's panel; also the ambient light of the 13806 variant.
     # Not checked on the device. With the power off the panel locks most keys too, but

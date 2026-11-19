@@ -80,13 +80,34 @@ device may ignore a value or change others itself (Dry turns the fan to High).
 
 Good to know:
 - The device beeps at every command unless **Mute** is on; mute also silences its tank-full
-  alarm, so watch the tank in Home Assistant.
+  alarm, so watch the tank in Home Assistant. Several settings in one
+  [`ewpe_local.set_state`](#action-set-state) are one command, one beep.
 - From the network, Health turns on both UV and ion; choosing one is only on the panel.
 - The panel's timer is not visible on the network: use automations.
 - Settings changed while the dehumidifier is off (target, fan, swing) are kept and apply
   when it is turned on.
 - Error code: 0 means no error; a full tank counts as an error too, the fault sensor leaves
   it out.
+
+## Action: set state
+
+`ewpe_local.set_state` sets any of power, mode, target humidity and fan speed in one
+command: the dehumidifier beeps once and applies them together. The mode goes first and
+the power last, so it turns on with the settings it got. For example, on with the fan at
+Low (after its power returns, the device starts with the fan at High):
+
+```yaml
+action: ewpe_local.set_state
+target:
+  entity_id: humidifier.dehumidifier
+data:
+  power: true
+  fan_speed: low
+```
+
+The panel's rules hold for the mode the command sets: with Dehumidify, a command can
+leave Dry with a target and a fan speed; with Dry, it cannot set the fan or the target
+(High, which Dry sets itself, and the target as it is are no error).
 
 ## Fully local
 
@@ -141,6 +162,10 @@ not authenticate devices, so any device on the network could answer for another.
   internet access, or run [EWPE Keepalive](#fully-local).
 - After a firmware update of the Wi-Fi module, use **Reconfigure**: it also detects the
   encryption again.
+
+**Setup says the device refused UDP port 7000.** Something at that address is on, but
+nothing listens on the port: usually it is another device, so check the address in your
+router. A Gree module that refuses the port cannot be controlled locally.
 
 **The address changed.** Use **Reconfigure** on the integration and enter the new one. A
 fixed address in the router avoids this; the integration does not follow the device by
