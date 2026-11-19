@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta
 import logging
@@ -27,6 +28,7 @@ from .const import (
     DOMAIN,
     MAX_SCAN_INTERVAL,
     MIN_SCAN_INTERVAL,
+    MODE_SETTLE,
 )
 from .models import Model
 from .protocol import (
@@ -120,22 +122,24 @@ class EwpeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """The mode once a command with these keys is done."""
         return decode(self.model.modes, values[MODE]) if MODE in values else self.mode
 
-    def _kept(self, column: str, mode: str | None) -> int | None:
-        """A key's value in a mode, unless a command sets it: the mode's own or as is."""
-        forced = self.model.forced(column, mode)
-        return as_int(self.data.get(column)) if forced is None else forced
+    def _entered(self, values: Mapping[str, int]) -> Mapping[str, int]:
+        """What the device sets itself for a command that changes the mode."""
+        mode = self._mode_after(values)
+        return self.model.entered(mode) if mode != self.mode else {}
 
     def _refusal(
         self, values: Mapping[str, int]
     ) -> tuple[str, dict[str, str] | None] | None:
         """Why the panel would refuse a command: the lock of a key it would change.
 
-        A key is compared with its value once the command is done: Dry with the fan at
-        High asks for nothing Dry does not do itself, whatever the fan was before.
+        A key is compared with its value once the command is done: entering Dry sets
+        the fan to High and the target to 50 %, so asking for those with Dry is no error.
         """
         mode = self._mode_after(values)
+        entered = self._entered(values)
         for column, value in values.items():
-            if value != self._kept(column, mode) and (lock := self._lock(column, mode)):
+            kept = entered.get(column, as_int(self.data.get(column)))
+            if value != kept and (lock := self._lock(column, mode)):
                 return lock
         return None
 
@@ -168,11 +172,14 @@ class EwpeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self.async_set_many({column: value})
 
     async def async_set_many(self, values: Mapping[str, int]) -> None:
-        """Write status keys in one command, then read the device back.
+        """Write status keys, then read the device back.
 
-        One command, one beep of the device. The panel's locks are those of the mode the
-        device is in once the command is done: from Dry, a command with Dehumidify may
-        set the target.
+        One command, one beep of the device. Only when the mode changes and the device
+        would set a key of the command itself (entering Dehumidify sets the fan to High,
+        over the fan of the same command and of one sent right after it), that key goes
+        in a second command MODE_SETTLE later, with the power. The panel's locks are
+        those of the mode the device is in once the command is done: from Dry, a
+        command with Dehumidify may set the target.
         """
         if self._refusal(values) is not None:
             # The tank may have been emptied, or the mode changed on the panel, since
@@ -187,17 +194,32 @@ class EwpeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
         # What a locked key has anyway (High in Dry, Health on in Purify) is not sent.
         mode = self._mode_after(values)
-        command = {
+        entered = self._entered(values)
+        keys = {
             column: value
             for column, value in sorted(
                 values.items(), key=lambda item: _COMMAND_ORDER.get(item[0], 0)
             )
             if self._lock(column, mode) is None
         }
-        if not command:
+        later = {column: value for column, value in keys.items() if column in entered}
+        if later and POWER in keys:
+            later[POWER] = keys[POWER]  # turns on or off with them
+        commands = [
+            command
+            for command in ({c: v for c, v in keys.items() if c not in later}, later)
+            if command
+        ]
+        if not commands:
             return
+        # The echo is what the module passed on; the read-back below tells what the
+        # device did with it.
+        state = {**self.data, **entered}
         try:
-            echo = await self.client.command(command)
+            for index, command in enumerate(commands):
+                if index:
+                    await asyncio.sleep(MODE_SETTLE)  # the new mode sets its own first
+                state.update(await self.client.command(command))
         except EwpeError as err:
             # The device may have done it and only the reply got lost: read it back.
             if not self.client.closed:
@@ -207,9 +229,7 @@ class EwpeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 translation_key="no_answer",
                 translation_placeholders={"host": self.client.host},
             ) from err
-        # The echo is what the module passed on; the read-back below tells what the
-        # device did with it.
-        self.async_set_updated_data({**self.data, **echo})
+        self.async_set_updated_data(state)
         self._schedule_confirm()
 
     @callback

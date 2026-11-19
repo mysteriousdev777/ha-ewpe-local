@@ -2,7 +2,8 @@
 
 Behaves like the tested one: answers scan with the generic ECB key, binds with one
 cipher only (silent to the other), answers status with the keys it knows, echoes
-commands, ignores fan changes in Dry and switches the fan to High when Dry starts.
+commands, ignores the fan and the target in Dry, and on entering a mode sets what the
+mode sets itself, after the keys of the command (ON_ENTER).
 
 It encrypts with greeclimate's ciphers: the integration's own packets are read and
 answered by an independent implementation of the protocol.
@@ -19,6 +20,14 @@ from greeclimate.cipher import CipherV1, CipherV2
 MAC = "aabbccddeeff"
 KEY = "aabbccddeeff0123"
 CIPHERS = {1: CipherV1, 2: CipherV2}
+# What the device sets on entering a mode from another one, over the same keys of the
+# command (checked on the device): Dry the target to 50 % and the fan to High,
+# Dehumidify the fan to High, Purify Health on.
+ON_ENTER: dict[int, dict[str, int]] = {
+    5: {"Dwet": 7, "WdSpd": 5},
+    2: {"WdSpd": 5},
+    9: {"Health": 1},
+}
 
 STATUS_13805: dict[str, Any] = {
     "Pow": 1,
@@ -61,6 +70,9 @@ class FakeModule(asyncio.DatagramProtocol):
         self.delay = 0.0  # seconds before each status or command reply
         self.decoy = False  # before a status reply, send one with other keys
         self.lose_echo = False  # apply commands, but their reply gets lost
+        # Seconds before a new mode sets its own keys (the device: under half a second),
+        # so they also override a command sent right after the mode.
+        self.enter_delay = 0.0
         self.requests: list[str] = []
         self.commands: list[dict[str, Any]] = []
         self.transport: asyncio.DatagramTransport | None = None
@@ -128,8 +140,11 @@ class FakeModule(asyncio.DatagramProtocol):
         elif pack["t"] == "cmd":
             values = dict(zip(pack["opt"], pack["p"], strict=True))
             self.commands.append(values)
+            mode = self.status.get("Dmod")
             for key, value in values.items():
                 self._apply(key, value)
+            if self.status.get("Dmod") != mode:
+                self._enter(ON_ENTER.get(self.status["Dmod"], {}))
             echo = {
                 "t": "res",
                 "mac": self.mac,
@@ -141,12 +156,22 @@ class FakeModule(asyncio.DatagramProtocol):
             if not self.lose_echo:
                 self._later(addr, cipher, echo)
 
+    def _enter(self, values: dict[str, int]) -> None:
+        if not self.enter_delay:
+            self.status.update(values)
+            return
+
+        def apply() -> None:
+            self._timers.discard(timer)
+            self.status.update(values)
+
+        timer = asyncio.get_running_loop().call_later(self.enter_delay, apply)
+        self._timers.add(timer)
+
     def _apply(self, key: str, value: Any) -> None:
-        if key == "WdSpd" and self.status.get("Dmod") == 5:
-            return  # Dry: the fan stays High, the command is echoed anyway
+        if key in ("WdSpd", "Dwet") and self.status.get("Dmod") == 5:
+            return  # Dry keeps the fan and the target; the command is echoed anyway
         self.status[key] = value
-        if key == "Dmod" and value == 5:
-            self.status["WdSpd"] = 5
 
     def _later(self, addr: tuple[str, int], cipher: Any, pack: dict[str, Any]) -> None:
         if not self.delay:

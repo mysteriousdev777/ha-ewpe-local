@@ -6,6 +6,7 @@ address is never changed by itself later: the protocol does not authenticate dev
 
 from __future__ import annotations
 
+from datetime import timedelta
 from ipaddress import IPv4Address
 from typing import Any
 
@@ -15,6 +16,7 @@ from homeassistant.components import network
 from homeassistant.config_entries import (
     SOURCE_RECONFIGURE,
     ConfigEntry,
+    ConfigEntryState,
     ConfigFlow,
     ConfigFlowResult,
     OptionsFlow,
@@ -207,16 +209,18 @@ class EwpeLocalConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class EwpeOptionsFlow(OptionsFlow):
-    """The polling interval; a new one reloads the entry (see __init__)."""
+    """The polling interval; a loaded entry takes it from its next poll, no reload."""
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         if user_input is not None:
             # The selector checks the limits; it gives a float.
-            return self.async_create_entry(
-                data={CONF_SCAN_INTERVAL: int(user_input[CONF_SCAN_INTERVAL])}
-            )
+            seconds = int(user_input[CONF_SCAN_INTERVAL])
+            entry = self.config_entry
+            if entry.state is ConfigEntryState.LOADED:
+                entry.runtime_data.update_interval = timedelta(seconds=seconds)
+            return self.async_create_entry(data={CONF_SCAN_INTERVAL: seconds})
         return self.async_show_form(
             step_id="init",
             data_schema=self.add_suggested_values_to_schema(

@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.ewpe_local import client
+from custom_components.ewpe_local import client, coordinator
 from custom_components.ewpe_local.const import (
     CONF_CIPHER,
     CONF_MID,
@@ -21,7 +21,7 @@ from homeassistant.core import HomeAssistant
 
 from .fake_module import MAC, FakeModule, start_module
 
-FAST = 0.2  # seconds: reply and bind timeouts in tests
+FAST = 0.2  # seconds: reply and bind timeouts, the wait after a new mode in tests
 
 
 @pytest.fixture
@@ -29,6 +29,7 @@ def fast_timeouts(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(client, "REPLY_TIMEOUT", FAST)
     monkeypatch.setattr(client, "BIND_TIMEOUT", FAST)
     monkeypatch.setattr(client, "SCAN_TIMEOUT", FAST)
+    monkeypatch.setattr(coordinator, "MODE_SETTLE", FAST)
 
 
 @pytest.fixture

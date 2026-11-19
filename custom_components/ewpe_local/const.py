@@ -17,3 +17,7 @@ MAX_SCAN_INTERVAL: Final = 300
 # After a command, the state is read back this much later: the device applies some
 # changes on its own (a new mode may switch the fan to High), and may ignore a value.
 CONFIRM_DELAY: Final = 2.0
+# A new mode sets some keys itself within half a second (entering Dehumidify sets the
+# fan to High; Low sent 14 ms after it was lost, 0.5 s after it held): a key it would
+# override goes in a second command this much later.
+MODE_SETTLE: Final = 1.0

@@ -333,24 +333,29 @@ async def test_set_state_locks_follow_the_mode_it_sets(
     assert hass.states.get(FAN).state == "high"
 
     await set_state(hass, mode="dehumidify", humidity=55, fan_speed="low")
-    assert module.commands[-1] == {"Dmod": 2, "Dwet": 8, "WdSpd": 1}
+    # Entering Dehumidify sets the fan to High: the fan goes in a second command.
+    assert module.commands[-2:] == [{"Dmod": 2, "Dwet": 8}, {"WdSpd": 1}]
     await confirm(hass)
     state = hass.states.get(DEHUMIDIFIER)
     assert state.attributes[ATTR_MODE] == "dehumidify"
     assert state.attributes[ATTR_HUMIDITY] == 55
-    assert hass.states.get(FAN).state == "low"  # set after the mode, not kept at High
+    assert hass.states.get(FAN).state == "low"
 
     with pytest.raises(ServiceValidationError) as err:
         await set_state(hass, mode="dry", fan_speed="medium")
     assert err.value.translation_key == "locked"
-    # Dry keeps the target as it is (55): another one is refused, that one is no error
-    # and not sent.
+    # Entering Dry sets the target to 50 %: another one is refused, 50 is no error and
+    # not sent.
     with pytest.raises(ServiceValidationError) as err:
-        await set_state(hass, mode="dry", humidity=50)
+        await set_state(hass, mode="dry", humidity=55)
     assert err.value.translation_key == "locked"
-    await set_state(hass, mode="dry", humidity=55)
+    await set_state(hass, mode="dry", humidity=50)
     assert module.commands[-1] == {"Dmod": 5}
-    assert len(module.commands) == 3
+    assert len(module.commands) == 4
+
+    await call(hass, "humidifier", SERVICE_SET_MODE, DEHUMIDIFIER, mode="dehumidify")
+    await confirm(hass)
+    assert hass.states.get(DEHUMIDIFIER).attributes[ATTR_HUMIDITY] == 50  # Dry set it
 
 
 async def test_set_state_into_dry_with_the_fan_it_sets(
@@ -364,12 +369,45 @@ async def test_set_state_into_dry_with_the_fan_it_sets(
     assert hass.states.get(FAN).state == "high"
 
 
+async def test_set_state_into_dehumidify_sends_the_fan_after_the_mode(
+    hass: HomeAssistant, entry: MockConfigEntry, module: FakeModule
+) -> None:
+    """Entering Dehumidify sets the fan to High a moment later, over the fan of the
+    same command and of one sent right after it: the fan goes MODE_SETTLE later."""
+    module.status.update(Pow=0, Dmod=9, WdSpd=3)  # off in Purify, the fan at Medium
+    await poll(hass)
+    module.enter_delay = 0.05  # under MODE_SETTLE of the tests (FAST)
+    await set_state(hass, power=True, mode="dehumidify", fan_speed="low")
+    assert module.commands == [{"Dmod": 2}, {"WdSpd": 1, "Pow": 1}]
+    assert hass.states.get(DEHUMIDIFIER).state == STATE_ON
+    assert hass.states.get(FAN).state == "low"
+    await confirm(hass)
+    assert hass.states.get(FAN).state == "low"
+
+
+async def test_entering_a_mode_shows_what_it_sets_at_once(
+    hass: HomeAssistant, entry: MockConfigEntry, module: FakeModule
+) -> None:
+    """Purify keeps the fan; Dehumidify from it sets High, shown before the read-back."""
+    await call(hass, "humidifier", SERVICE_SET_MODE, DEHUMIDIFIER, mode="purify")
+    await confirm(hass)
+    assert hass.states.get(FAN).state == "low"
+    await call(hass, "humidifier", SERVICE_SET_MODE, DEHUMIDIFIER, mode="dehumidify")
+    assert hass.states.get(FAN).state == "high"
+    await confirm(hass)
+    assert hass.states.get(FAN).state == "high"
+    # The same mode again changes nothing on the device: no High there.
+    await call(hass, "select", SERVICE_SELECT_OPTION, FAN, **{ATTR_OPTION: "low"})
+    await call(hass, "humidifier", SERVICE_SET_MODE, DEHUMIDIFIER, mode="dehumidify")
+    assert hass.states.get(FAN).state == "low"
+
+
 async def test_fan_right_after_dry_is_checked_against_high(
     hass: HomeAssistant, entry: MockConfigEntry, module: FakeModule
 ) -> None:
-    """Before the read-back the fan still shows Low, but Dry has set High already."""
+    """Right after Dry, before the read-back, the fan already shows the High Dry sets."""
     await call(hass, "humidifier", SERVICE_SET_MODE, DEHUMIDIFIER, mode="dry")
-    assert hass.states.get(FAN).state == "low"  # not read back yet
+    assert hass.states.get(FAN).state == "high"  # not read back yet
     with pytest.raises(ServiceValidationError) as err:
         await call(hass, "select", SERVICE_SELECT_OPTION, FAN, **{ATTR_OPTION: "low"})
     assert err.value.translation_key == "locked"

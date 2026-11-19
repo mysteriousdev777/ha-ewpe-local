@@ -76,7 +76,11 @@ The device's panel rules hold here too: Dry and Purify have no target humidity, 
 the fan at High, Purify keeps Health on; with the water tank full, only the power and the
 child lock change. Home Assistant refuses such a change with an error instead of sending
 what the device would ignore. Two seconds after every command the state is read back: the
-device may ignore a value or change others itself (Dry turns the fan to High).
+device may ignore a value or change others itself.
+
+Entering a mode, the device sets some things itself: Dry sets the target to 50 % and the
+fan to High (the target stays 50 % back in Dehumidify), Dehumidify sets the fan to High.
+Home Assistant shows these at once.
 
 Good to know:
 - The device beeps at every command unless **Mute** is on; mute also silences its tank-full
@@ -107,7 +111,10 @@ data:
 
 The panel's rules hold for the mode the command sets: with Dehumidify, a command can
 leave Dry with a target and a fan speed; with Dry, it cannot set the fan or the target
-(High, which Dry sets itself, and the target as it is are no error).
+(High and 50 %, which Dry sets itself, are no error). A fan speed with a change to
+Dehumidify goes in a second command a second after the first, so a second beep:
+entering Dehumidify sets the fan to High a moment later, over the fan of the same
+command or of one sent right after it.
 
 ## Fully local
 

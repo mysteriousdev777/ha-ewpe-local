@@ -51,7 +51,7 @@
           "scan_interval": "Polling interval"
         },
         "data_description": {
-          "scan_interval": "How often the device's state is read, 15 to 300 seconds. After a command the state is also read 2 seconds later."
+          "scan_interval": "How often the device's state is read, 15 to 300 seconds; a new interval applies from the next read. After a command the state is also read 2 seconds later."
         }
       }
     }
@@ -173,7 +173,7 @@
         },
         "mode": {
           "name": "Mode",
-          "description": "Dry and Purify have no target humidity; Dry keeps the fan at High."
+          "description": "Entering Dry sets the target to 50 % and the fan to High, entering Dehumidify the fan to High. Dry and Purify have no target humidity."
         },
         "humidity": {
           "name": "Target humidity",
@@ -181,7 +181,7 @@
         },
         "fan_speed": {
           "name": "Fan speed",
-          "description": "Not in Dry, which keeps the fan at High."
+          "description": "Not in Dry, which keeps the fan at High. With a change to Dehumidify, it goes in a second command a second later (a second beep), as entering Dehumidify sets High."
         }
       }
     }
